@@ -11,20 +11,20 @@ try {
   loadError = err;
 }
 
-const RIGHT_BUTTON = 2; // libuiohook: 1 esquerdo, 2 direito, 3 meio (igual nos 3 sistemas)
+const TRIGGER_BUTTON = parseInt(process.env.RADIALFLOW_BUTTON || '2'); // 1=esquerdo, 2=direito (padrão), 3=meio
 const debug = !!process.env.RADIALFLOW_DEBUG;
 
 function start({ onRightDown, onMove, onRightUp }) {
   if (!uIOhook) throw new Error(`uiohook-napi não carregou: ${loadError && loadError.message}`);
   uIOhook.on('mousedown', (e) => {
-    if (debug) console.log('[hook] mousedown', e.button, e.x, e.y);
-    if (e.button === RIGHT_BUTTON) onRightDown(e.x, e.y);
+    if (debug) console.log('[hook] mousedown', e.button, 'trigger=', TRIGGER_BUTTON, e.x, e.y);
+    if (e.button === TRIGGER_BUTTON) onRightDown(e.x, e.y);
   });
   uIOhook.on('mousemove', (e) => onMove(e.x, e.y));
-  uIOhook.on('mousedrag', (e) => onMove(e.x, e.y)); // movimento com botão pressionado
+  uIOhook.on('mousedrag', (e) => onMove(e.x, e.y));
   uIOhook.on('mouseup', (e) => {
-    if (debug) console.log('[hook] mouseup', e.button, e.x, e.y);
-    if (e.button === RIGHT_BUTTON) onRightUp(e.x, e.y);
+    if (debug) console.log('[hook] mouseup', e.button, 'trigger=', TRIGGER_BUTTON, e.x, e.y);
+    if (e.button === TRIGGER_BUTTON) onRightUp(e.x, e.y);
   });
   uIOhook.start();
   if (debug) console.log('[hook] iniciado');

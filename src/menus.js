@@ -2,6 +2,7 @@
 // Menu de arquivo: compactar, extrair, converter.
 
 const MENU = [
+  { id: 'toPdf', label: 'Para PDF', icon: '📄' },
   { id: 'zip', label: 'Compactar', icon: '🗜️' },
   { id: 'unzip', label: 'Extrair', icon: '📂' },
   { id: 'toPng', label: 'Para PNG', icon: '🖼️' },

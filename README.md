@@ -1,13 +1,8 @@
 # RadialFlow
 
-Menu radial de atalhos para **Windows, Linux e macOS**. Segure o **botão direito** do mouse e **arraste um pouco**: uma roda aparece sob o cursor com ações que dependem do que está embaixo dele. Mova para uma fatia e solte para executar; solte no centro para cancelar.
+Roda de conversão de arquivos para **Windows, Linux e macOS**. No gerenciador de arquivos, segure o **botão direito** sobre um arquivo e **arraste um pouco**: uma roda aparece sob o cursor. Mova para uma fatia e solte para executar; solte no centro para cancelar.
 
-| Sob o cursor | Ações |
-|---|---|
-| Arquivo(s) selecionado(s) no gerenciador de arquivos | Compactar (.zip), Extrair, Converter para PNG/JPG, Copiar caminho |
-| Barra de título de uma janela | Encaixar à esquerda/direita, Maximizar, Minimizar |
-| Campo de texto | Colar, Colar sem formatação, Traduzir seleção, Selecionar tudo |
-| Qualquer outro lugar | Recorte de tela, Mostrar área de trabalho, Visão de tarefas |
+Ações: **Para PDF** (texto e imagens), **Compactar** (.zip), **Extrair**, **Para PNG**, **Para JPG**, **Copiar caminho**. O arquivo novo é criado ao lado do original.
 
 ## Instalação
 
@@ -31,20 +26,9 @@ Nada além do `npm install`.
 
 Pacotes: `sudo apt install wmctrl x11-utils python3-gi gir1.2-atspi-2.0` (Debian/Ubuntu). Para converter imagens: `imagemagick`.
 
-**GNOME em Wayland (padrão do Ubuntu/Debian atuais)**
+**Use uma sessão X11.** O Wayland não deixa nenhum programa observar o mouse fora das próprias janelas, então o gesto não funciona nele. No GNOME: saia da sessão, clique no seu nome na tela de login, use a engrenagem no canto inferior direito e escolha **"GNOME em Xorg"**. Confira com `echo $XDG_SESSION_TYPE` (deve mostrar `x11`).
 
-O Wayland não deixa nenhum programa observar o mouse fora das próprias janelas, então o gesto do botão direito é impossível. Nele, o RadialFlow funciona assim:
-
-1. Com o app aberto (`npm start`), crie o atalho de teclado: `npm run atalho` (padrão **Ctrl+Alt+Espaço**; outro: `npm run atalho -- '<Super>r'`).
-2. Aperte o atalho: a roda abre sob o cursor. Clique na fatia, ou tecle o número dela; **Esc** cancela.
-3. Na primeira ação que envia teclas (colar, encaixar janela...), o GNOME pergunta se o RadialFlow pode **controlar o teclado**. Aprove; a autorização fica salva em `~/.config/radialflow/portal-token`. Enquanto há uma ação recente, o GNOME mostra um ícone de "controle remoto" na barra superior; ele some após 60 s sem uso.
-
-O contexto vem do **foco**: campo de texto com foco → menu de texto; gerenciador de arquivos ativo → menu de arquivos; outro caso → ações da janela ativa (encaixar, maximizar, minimizar, recorte, visão geral). Encaixar usa Super+←/→/↑, os atalhos do GNOME/Tiling Assistant.
-
-**Sessão X11 ("GNOME em Xorg" na tela de login)**: o gesto do botão direito funciona como no Windows e no macOS.
-
-Em ambos: para detectar campos de texto em navegadores e apps Electron, ative a acessibilidade:
-`gsettings set org.gnome.desktop.interface toolkit-accessibility true`
+Ao segurar o botão direito, o menu de contexto do gerenciador de arquivos abre junto; o RadialFlow o fecha sozinho e copia a seleção (Ctrl+C) para saber quais arquivos converter.
 
 Iniciar com o sistema: copie um `.desktop` que rode o app para `~/.config/autostart/`.
 
@@ -65,13 +49,12 @@ Iniciar com o sistema: copie um `.desktop` que rode o app para `~/.config/autost
 
 ## Privacidade e limites
 
-- Tudo roda localmente. A única ação que usa a internet é **Traduzir**: abre o Google Tradutor no navegador com o texto selecionado (até 4000 caracteres).
-- A ação de copiar (Traduzir, e arquivos no Linux) usa a área de transferência e restaura o texto anterior em seguida.
+- Tudo roda localmente; nada usa a internet.
+- No Linux, a seleção é lida pela área de transferência, e o texto anterior é restaurado em seguida.
+- Para PDF aceita texto (.txt, .md, .csv, .log, .json...) e imagens (.png, .jpg, .gif, .webp, .svg...).
 - Windows: ações não funcionam sobre janelas de administrador, a menos que o RadialFlow também rode como administrador.
-- Linux: no Wayland, ver acima. A detecção de arquivos funciona em Nautilus, Nemo, Caja, Thunar, Dolphin e PCManFM; a área de trabalho não é suportada.
-- Botão do gesto (X11, Windows, macOS): `RADIALFLOW_BUTTON=1` esquerdo, `2` direito (padrão), `3` meio.
-- macOS: "campo de texto" usa o elemento com foco, não o que está exatamente sob o cursor.
-- Apps que desenham a própria interface (jogos, alguns apps Java) podem cair em "qualquer outro lugar".
+- Linux: só X11 (ver acima). A área de trabalho não é suportada.
+- Botão do gesto: `RADIALFLOW_BUTTON=1` esquerdo, `2` direito (padrão), `3` meio.
 
 ## Testar e depurar
 

@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { GestureDetector } = require('../src/gesture');
-const { sliceAt, menuFor } = require('../src/menus');
+const { MENU, sliceAt } = require('../src/menus');
 
 test('clique direito simples não dispara', () => {
   const g = new GestureDetector();
@@ -44,7 +44,7 @@ test('sliceAt: direções e zona morta', () => {
   assert.equal(sliceAt(3, 3, 4), -1);     // centro
 });
 
-test('menuFor cai em unknown', () => {
-  assert.ok(menuFor('xyz').length > 0);
-  assert.ok(menuFor('file').some((s) => s.id === 'zip'));
+test('MENU tem as ações de arquivo', () => {
+  assert.ok(MENU.length > 0);
+  assert.ok(MENU.some((s) => s.id === 'zip'));
 });

@@ -7,7 +7,6 @@
 
 const path = require('node:path');
 const { clipboard } = require('electron');
-const hooks = require('../hooks');
 const {
   scriptsDir, LineProbe, run, sleep, copySelection, parsePaths, openTranslate,
   zipWithPython, unzipWithPython, withExt
@@ -29,8 +28,9 @@ const KEYSYM = {
 };
 
 async function keys(...names) {
-  if (!wayland) return hooks.keys(...names);
   const combo = names.map((n) => KEYSYM[n] || n.toLowerCase()).join('+');
+  // X11: XTest direto. O keyTap do uiohook não chega às janelas GTK4 (testado no Nautilus).
+  if (!wayland) return run('python3', [path.join(scriptsDir(), 'xkeys.py'), combo]);
   const res = await portal.request(combo);
   if (!res.ok) throw new Error(res.error || 'falha ao enviar teclas');
 }
@@ -87,12 +87,28 @@ async function performAction(id, ctx) {
     case 'screenshot': return keys('PrintScreen');
     case 'showDesktop': return keys('Meta', 'D');
     case 'taskView': return keys('Meta');
-    case 'copyPath': return clipboard.writeText((await selectedPaths()).join('\n'));
-    case 'zip': return zipWithPython(await selectedPaths());
-    case 'unzip': return unzipWithPython(await selectedPaths());
-    case 'toPng': return convertImages(await selectedPaths(), '.png');
-    case 'toJpg': return convertImages(await selectedPaths(), '.jpg');
+    case 'copyPath': return clipboard.writeText(ctx.paths.join('\n'));
+    case 'zip': return zipWithPython(ctx.paths);
+    case 'unzip': return unzipWithPython(ctx.paths);
+    case 'toPng': return convertImages(ctx.paths, '.png');
+    case 'toJpg': return convertImages(ctx.paths, '.jpg');
     default: throw new Error(`Ação não suportada no Linux: ${id}`);
+  }
+}
+
+// Copia a seleção no momento do gesto, enquanto o gerenciador de arquivos ainda tem o foco.
+// Não usa a sonda AT-SPI: no GTK4 (Nautilus 4x) ela informa posições relativas à janela.
+async function detectContext() {
+  // O menu de contexto nativo abre logo após o botão ser apertado; espera ele aparecer,
+  // fecha com Esc e só então copia (senão o Ctrl+C vai para o menu).
+  await sleep(250);
+  await keys('Escape');
+  await sleep(150);
+  try {
+    const paths = await selectedPaths();
+    return { kind: 'file', paths };
+  } catch {
+    return { kind: 'unknown', paths: [] };
   }
 }
 
@@ -100,9 +116,9 @@ module.exports = {
   wayland,
   start: () => { probe.start(); if (portal) portal.start(); },
   stop: () => { probe.stop(); if (portal) portal.stop(); },
-  detectContext: (x, y) => probe.ask(x, y),
+  detectContext,
   detectFocus: () => probe.request('focus'),
   performAction,
-  // GTK/Qt abrem o menu de contexto ao APERTAR o botão; fechamos com Esc ao disparar a roda.
-  dismissNativeMenu: !wayland
+  // GTK/Qt abrem o menu de contexto ao APERTAR o botão; detectContext fecha com Esc no tempo certo.
+  dismissNativeMenu: false
 };

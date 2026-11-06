@@ -4,8 +4,9 @@ const {
   app, BrowserWindow, Tray, Menu, screen, nativeImage, Notification, systemPreferences, ipcMain
 } = require('electron');
 const { GestureDetector } = require('./gesture');
-const { menuFor, sliceAt } = require('./menus');
+const { MENU, sliceAt } = require('./menus');
 const hooks = require('./hooks');
+const { toPdf } = require('./pdf');
 const { impl } = require('./platform');
 
 // Linux: roda o Electron via X11/XWayland — o uiohook só enxerga eventos X11
@@ -60,12 +61,13 @@ gesture.on('trigger', async ({ origin }) => {
     : await platform.detectContext(origin.x, origin.y);
   if (session !== token) return; // usuário soltou o botão antes da detecção terminar
   if (process.env.RADIALFLOW_DEBUG) console.log('[contexto]', JSON.stringify(ctx));
+  if (!FAKE_CONTEXT && ctx.kind !== 'file') { session = null; return; } // a roda é só para arquivos
 
   const center = toDip({ x: origin.x, y: origin.y });
   const display = screen.getDisplayNearestPoint(center);
   ctx.workArea = display.workArea;
   ctx.scaleFactor = display.scaleFactor;
-  const slices = menuFor(ctx.kind);
+  const slices = MENU;
   session = { ctx, slices, center, highlighted: -1 };
   overlay.setBounds({
     x: Math.round(center.x - SIZE / 2), y: Math.round(center.y - SIZE / 2), width: SIZE, height: SIZE
@@ -94,7 +96,8 @@ gesture.on('release', async () => {
     return;
   }
   try {
-    await platform.performAction(slice.id, s.ctx);
+    if (slice.id === 'toPdf') await toPdf(s.ctx.paths);
+    else await platform.performAction(slice.id, s.ctx);
   } catch (err) {
     console.error('[ação]', slice.id, err.message);
     notify(`Falhou: ${slice.label} — ${err.message.split('\n')[0]}`);
@@ -130,7 +133,7 @@ async function openPicker() {
   const display = screen.getDisplayNearestPoint(cursor);
   ctx.workArea = display.workArea;
   ctx.scaleFactor = display.scaleFactor;
-  const slices = menuFor(ctx.kind === 'unknown' ? 'general' : ctx.kind);
+  const slices = MENU;
   pickSession = { ctx, slices };
   picker.setBounds(display.bounds);
   picker.webContents.send('pick', {

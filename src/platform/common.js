@@ -88,9 +88,13 @@ async function copySelection(sendCopy) {
   const previous = clipboard.readText();
   clipboard.clear();
   await sendCopy();
-  await sleep(200);
+  // O app de origem pode demorar para assumir a área de transferência: espera até 1 s.
+  let formats = [];
+  for (let i = 0; i < 10 && !formats.length; i++) {
+    await sleep(100);
+    formats = clipboard.availableFormats();
+  }
   const text = clipboard.readText();
-  const formats = clipboard.availableFormats();
   const uris = formats.includes('text/uri-list') ? clipboard.read('text/uri-list') : '';
   const gnome = formats.includes('x-special/gnome-copied-files')
     ? clipboard.readBuffer('x-special/gnome-copied-files').toString('utf8') : '';

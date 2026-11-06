@@ -1,0 +1,19 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+      - run: npm test
+      - name: Validar sintaxe dos scripts PowerShell
+        shell: powershell
+        run: |
+          foreach ($f in Get-ChildItem scripts\*.ps1) {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $errs; exit 1 }
+          }

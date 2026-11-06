@@ -15,10 +15,12 @@ function checkDeps() {
 let monitorPid = null;
 
 function startHooks(onRightDown, onMove, onRightUp) {
-  checkDeps();
-  console.log('[linux] hooks: requer permissões de entrada - execute sem sandbox ou configure polkit');
-  // Stub: Linux requer mais setup (polkit, permissões de entrada global)
-  // Para agora, apenas simulamos
+  if (!process.env.RADIALFLOW_FAKE_CONTEXT) {
+    checkDeps();
+    console.log('[linux] hooks: requer permissões de entrada - execute sem sandbox ou configure polkit');
+    // Stub: Linux requer mais setup (polkit, permissões de entrada global)
+  }
+  // Em modo simulado ou com dependências OK, não faz nada (eventos vêm de test ou xdotool)
 }
 
 function stopHooks() {

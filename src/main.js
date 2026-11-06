@@ -2,23 +2,17 @@
 const path = require('node:path');
 const { app, BrowserWindow, Tray, Menu, screen, nativeImage, Notification, ipcMain } = require('electron');
 const { GestureDetector } = require('./gesture');
-const { ContextProbe } = require('./context');
 const { menuFor, sliceAt } = require('./menus');
-const { perform } = require('./actions');
+const { impl } = require('./platform');
 
-const SIZE = 360; // lado da janela da roda, em DIP
-const RIGHT_BUTTON = 2; // uiohook: 1 esquerdo, 2 direito, 3 meio
-
+const SIZE = 360;
 let overlay = null;
 let tray = null;
-let hook = null;
 let enabled = true;
-let session = null; // { ctx, slices, center(DIP), highlighted }
+let session = null;
+let platform = null;
 
 const gesture = new GestureDetector();
-const probe = new ContextProbe();
-
-// uiohook entrega pixels físicos; Electron trabalha em DIP.
 const toDip = (p) => (process.platform === 'win32' ? screen.screenToDipPoint(p) : p);
 
 function notify(body) {
@@ -33,7 +27,6 @@ function createOverlay() {
   });
   overlay.setAlwaysOnTop(true, 'screen-saver');
   overlay.loadFile(path.join(__dirname, 'overlay', 'index.html'));
-  // Nada de menu de contexto nativo: o mouseup do botão direito cai aqui e é engolido.
   overlay.webContents.on('context-menu', (e) => e.preventDefault());
 }
 
@@ -43,11 +36,11 @@ function hide() {
 }
 
 gesture.on('trigger', async ({ origin }) => {
-  if (!enabled) return;
+  if (!enabled || !platform) return;
   const token = {};
   session = token;
-  const ctx = await probe.detect(origin.x, origin.y);
-  if (session !== token) return; // usuário já soltou o botão
+  const ctx = await platform.detectContext(origin.x, origin.y);
+  if (session !== token) return;
   const slices = menuFor(ctx.kind);
   const center = toDip({ x: origin.x, y: origin.y });
   session = { ctx, slices, center, highlighted: -1 };
@@ -71,30 +64,15 @@ gesture.on('move', ({ x, y }) => {
 gesture.on('release', async () => {
   const s = session;
   hide();
-  if (!s || !s.slices || s.highlighted < 0) return;
+  if (!s || !s.slices || s.highlighted < 0 || !platform) return;
   const slice = s.slices[s.highlighted];
   try {
-    await perform(slice.id, s.ctx);
+    await platform.performAction(slice.id, s.ctx);
   } catch (err) {
     console.error('[ação]', slice.id, err.message);
     notify(`Falhou: ${slice.label} — ${err.message.split('\n')[0]}`);
   }
 });
-
-function startHook() {
-  let mod;
-  try {
-    mod = require('uiohook-napi');
-  } catch (err) {
-    console.error('uiohook-napi indisponível (rode no Windows e execute "npm install"):', err.message);
-    return;
-  }
-  hook = mod.uIOhook;
-  hook.on('mousedown', (e) => { if (e.button === RIGHT_BUTTON) gesture.onRightDown(e.x, e.y); });
-  hook.on('mousemove', (e) => gesture.onMove(e.x, e.y));
-  hook.on('mouseup', (e) => { if (e.button === RIGHT_BUTTON) gesture.onRightUp(e.x, e.y); });
-  hook.start();
-}
 
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png'));
@@ -103,7 +81,8 @@ function createTray() {
   const rebuild = () => tray.setContextMenu(Menu.buildFromTemplate([
     { label: enabled ? 'Desativar' : 'Ativar', click: () => { enabled = !enabled; rebuild(); } },
     {
-      label: 'Iniciar com o Windows', type: 'checkbox',
+      label: 'Iniciar com o ' + (process.platform === 'win32' ? 'Windows' : 'sistema'),
+      type: 'checkbox',
       checked: app.getLoginItemSettings().openAtLogin,
       click: (i) => app.setLoginItemSettings({ openAtLogin: i.checked })
     },
@@ -116,14 +95,22 @@ function createTray() {
 if (!app.requestSingleInstanceLock()) app.quit();
 
 app.whenReady().then(() => {
-  createOverlay();
-  createTray();
-  probe.start();
-  startHook();
-  notify('Ativo. Segure o botão direito e arraste um pouco.');
+  try {
+    platform = impl();
+    createOverlay();
+    createTray();
+    platform.startHooks(
+      (x, y) => gesture.onRightDown(x, y),
+      (x, y) => gesture.onMove(x, y),
+      (x, y) => gesture.onRightUp(x, y)
+    );
+    notify('Ativo. Segure o botão direito e arraste um pouco.');
+  } catch (err) {
+    console.error('[main]', err.message);
+    notify(`Erro: ${err.message}`);
+  }
 });
 
-// App de bandeja: não encerra quando não há janelas visíveis.
 app.on('window-all-closed', (e) => e.preventDefault());
-app.on('before-quit', () => { probe.stop(); if (hook) hook.stop(); });
+app.on('before-quit', () => { if (platform) platform.stopHooks(); });
 ipcMain.on('noop', () => {});

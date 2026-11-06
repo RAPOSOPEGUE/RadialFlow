@@ -1,25 +1,30 @@
 {
   "name": "radialflow",
   "version": "0.1.0",
-  "description": "Menu radial de atalhos contextuais acionado por arrasto com o botão direito (Windows)",
+  "description": "Menu radial de atalhos contextuais — Windows, Linux e macOS",
   "main": "src/main.js",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/**/*.test.js\"",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder"
   },
   "dependencies": {
-    "uiohook-napi": "^1.5.4"
+    "xdotool": "^2.0.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },
+  "optionalDependencies": {
+    "uiohook-napi": "^1.5.4"
+  },
   "build": {
     "appId": "inc.jager.radialflow",
     "productName": "RadialFlow",
     "win": { "target": "nsis" },
+    "linux": { "target": ["AppImage", "deb"] },
+    "mac": { "target": ["dmg", "zip"] },
     "extraResources": [{ "from": "scripts", "to": "scripts" }]
   }
 }

@@ -30,7 +30,7 @@ jobs:
           }
       - name: Sintaxe da sonda Python
         if: runner.os == 'Linux'
-        run: python3 -m py_compile scripts/context-probe-linux.py
+        run: python3 -m py_compile scripts/context-probe-linux.py scripts/wayland-keys.py
       - name: Sintaxe dos AppleScripts
         if: runner.os == 'macOS'
         run: for f in scripts/*.applescript; do osacompile -o /tmp/check.scpt "$f"; done

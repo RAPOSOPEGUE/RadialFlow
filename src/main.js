@@ -1,7 +1,7 @@
 'use strict';
 const path = require('node:path');
 const {
-  app, BrowserWindow, Tray, Menu, screen, nativeImage, Notification, systemPreferences
+  app, BrowserWindow, Tray, Menu, screen, nativeImage, Notification, systemPreferences, ipcMain
 } = require('electron');
 const { GestureDetector } = require('./gesture');
 const { menuFor, sliceAt } = require('./menus');
@@ -101,11 +101,70 @@ gesture.on('release', async () => {
   }
 });
 
+// ---- Modo atalho (GNOME Wayland): a roda abre por um atalho de teclado do sistema ----
+
+let picker = null;
+let pickSession = null; // { ctx, slices }
+
+function createPicker() {
+  picker = new BrowserWindow({
+    show: false, frame: false, transparent: true, resizable: false, skipTaskbar: true,
+    alwaysOnTop: true, hasShadow: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true }
+  });
+  picker.setAlwaysOnTop(true, 'screen-saver');
+  picker.loadFile(path.join(__dirname, 'overlay', 'index.html'));
+  picker.on('blur', () => closePicker());
+}
+
+function closePicker() {
+  pickSession = null;
+  if (picker && picker.isVisible()) picker.hide();
+}
+
+async function openPicker() {
+  if (!enabled || !platform || !picker || picker.isVisible()) return;
+  const ctx = FAKE_CONTEXT ? { kind: FAKE_CONTEXT, paths: [] } : await platform.detectFocus();
+  if (process.env.RADIALFLOW_DEBUG) console.log('[contexto]', JSON.stringify(ctx));
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  ctx.workArea = display.workArea;
+  ctx.scaleFactor = display.scaleFactor;
+  const slices = menuFor(ctx.kind === 'unknown' ? 'general' : ctx.kind);
+  pickSession = { ctx, slices };
+  picker.setBounds(display.bounds);
+  picker.webContents.send('pick', {
+    slices, cursor: { x: cursor.x - display.bounds.x, y: cursor.y - display.bounds.y }
+  });
+  picker.show();
+  picker.focus();
+  if (process.env.RADIALFLOW_DEBUG) console.log('[roda] aberta em', JSON.stringify(picker.getBounds()), 'cursor', cursor);
+}
+
+ipcMain.on('picked', async (_e, idx) => {
+  const s = pickSession;
+  closePicker();
+  if (!s || !s.slices[idx]) return;
+  const slice = s.slices[idx];
+  if (FAKE_CONTEXT) {
+    console.log('[simulado] ação:', slice.id);
+    return;
+  }
+  try {
+    await platform.performAction(slice.id, s.ctx);
+  } catch (err) {
+    console.error('[ação]', slice.id, err.message);
+    notify(`Falhou: ${slice.label} — ${err.message.split('\n')[0]}`);
+  }
+});
+ipcMain.on('pick-cancel', () => closePicker());
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png'));
   tray = new Tray(process.platform === 'darwin' ? icon.resize({ width: 18, height: 18 }) : icon);
   tray.setToolTip('RadialFlow');
   const rebuild = () => tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir roda', visible: !!(platform && platform.wayland), click: () => openPicker() },
     { label: enabled ? 'Desativar' : 'Ativar', click: () => { enabled = !enabled; rebuild(); } },
     {
       // No Linux o Electron não suporta abrir no login; o README explica o .desktop de autostart.
@@ -124,9 +183,18 @@ function fail(message) {
   notify(message);
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// "--abrir" abre a roda (usado pelo atalho do GNOME no Wayland). Se o app já estiver
+// rodando, a segunda instância só repassa o pedido e fecha.
+const wantsPicker = (argv) => argv.includes('--abrir');
 
-app.whenReady().then(() => {
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => { if (wantsPicker(argv)) openPicker(); });
+  app.whenReady().then(start);
+}
+
+function start() {
   if (process.platform === 'darwin') app.dock.hide();
   platform = impl();
   createOverlay();
@@ -136,12 +204,16 @@ app.whenReady().then(() => {
     fail('Dê permissão de Acessibilidade ao RadialFlow (Ajustes do Sistema → Privacidade e Segurança → Acessibilidade) e abra-o de novo.');
     return;
   }
-  if (process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland') {
-    console.warn('[RadialFlow] Sessão Wayland: o gesto só é detectado sobre janelas X11/XWayland. ' +
-      'Para funcionar em todas as janelas, entre na sessão "GNOME em Xorg".');
+  if (!FAKE_CONTEXT) platform.start();
+
+  if (platform.wayland) {
+    // GNOME Wayland não permite observar o mouse fora do app: sem gesto, só atalho.
+    createPicker();
+    notify('Ativo. Abra a roda com o atalho de teclado configurado (veja o README).');
+    if (wantsPicker(process.argv)) picker.webContents.once('did-finish-load', () => openPicker());
+    return;
   }
 
-  if (!FAKE_CONTEXT) platform.start();
   try {
     hooks.start({
       onRightDown: (x, y) => gesture.onRightDown(x, y),
@@ -153,7 +225,7 @@ app.whenReady().then(() => {
     return;
   }
   notify('Ativo. Segure o botão direito e arraste um pouco.');
-});
+}
 
 // Encerramento limpo ao receber sinal (Ctrl+C no terminal, systemd, kill).
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => app.quit());

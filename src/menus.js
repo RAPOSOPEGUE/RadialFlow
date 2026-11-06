@@ -21,6 +21,15 @@ const MENUS = {
     { id: 'translate', label: 'Traduzir', icon: '🌐' },
     { id: 'selectAll', label: 'Selecionar tudo', icon: '▤' }
   ],
+  // GNOME Wayland sem contexto definido: a roda abre por atalho e age na janela ativa.
+  general: [
+    { id: 'snapLeft', label: 'Esquerda', icon: '◧' },
+    { id: 'maximize', label: 'Maximizar', icon: '⬜' },
+    { id: 'snapRight', label: 'Direita', icon: '◨' },
+    { id: 'minimize', label: 'Minimizar', icon: '▁' },
+    { id: 'screenshot', label: 'Recorte de tela', icon: '✂️' },
+    { id: 'taskView', label: 'Visão geral', icon: '🗂️' }
+  ],
   unknown: [
     { id: 'screenshot', label: 'Recorte de tela', icon: '✂️' },
     { id: 'showDesktop', label: 'Área de trabalho', icon: '🖥️' },

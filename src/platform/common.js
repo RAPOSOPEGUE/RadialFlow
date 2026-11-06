@@ -14,13 +14,14 @@ function scriptsDir() {
     : path.join(__dirname, '..', '..', 'scripts');
 }
 
-// Processo persistente que responde uma linha JSON para cada linha "x y" recebida.
+// Processo persistente que responde uma linha JSON para cada linha recebida.
 // Mantido vivo para evitar o custo de iniciar o interpretador a cada gesto.
 class LineProbe {
-  constructor(cmd, args, timeoutMs = 700) {
+  constructor(cmd, args, timeoutMs = 700, fallback = { kind: 'unknown' }) {
     this.cmd = cmd;
     this.args = args;
     this.timeoutMs = timeoutMs;
+    this.fallback = fallback; // resposta usada em timeout, erro ou processo parado
     this.proc = null;
     this.queue = [];
     this.stopped = false;
@@ -34,11 +35,11 @@ class LineProbe {
       const pending = this.queue.shift();
       if (!pending) return;
       clearTimeout(pending.timer);
-      try { pending.resolve(JSON.parse(line)); } catch { pending.resolve({ kind: 'unknown' }); }
+      try { pending.resolve(JSON.parse(line)); } catch { pending.resolve({ ...this.fallback }); }
     });
     this.proc.stderr.on('data', (d) => console.error('[sonda]', d.toString().trim()));
     this.proc.on('exit', () => {
-      this.queue.splice(0).forEach((p) => { clearTimeout(p.timer); p.resolve({ kind: 'unknown' }); });
+      this.queue.splice(0).forEach((p) => { clearTimeout(p.timer); p.resolve({ ...this.fallback }); });
       this.proc = null;
       if (!this.stopped) setTimeout(() => this.start(), 1000);
     });
@@ -49,17 +50,21 @@ class LineProbe {
     if (this.proc) this.proc.kill();
   }
 
-  ask(x, y) {
-    if (!this.proc || !this.proc.stdin.writable) return Promise.resolve({ kind: 'unknown' });
+  request(line, timeoutMs = this.timeoutMs) {
+    if (!this.proc || !this.proc.stdin.writable) return Promise.resolve({ ...this.fallback });
     return new Promise((resolve) => {
       const entry = { resolve, timer: null };
       entry.timer = setTimeout(() => {
         entry.resolve = () => {}; // a resposta tardia ainda será consumida da fila
-        resolve({ kind: 'unknown', timeout: true });
-      }, this.timeoutMs);
+        resolve({ ...this.fallback, timeout: true });
+      }, timeoutMs);
       this.queue.push(entry);
-      this.proc.stdin.write(`${Math.round(x)} ${Math.round(y)}\n`);
+      this.proc.stdin.write(`${line}\n`);
     });
+  }
+
+  ask(x, y) {
+    return this.request(`${Math.round(x)} ${Math.round(y)}`);
   }
 }
 

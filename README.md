@@ -29,11 +29,24 @@ Nada além do `npm install`.
 
 ### Linux
 
-- **Precisa de sessão X11.** No GNOME, escolha **"GNOME em Xorg"** na tela de login (engrenagem no canto). No Wayland, o sistema não deixa nenhum programa ver o mouse fora das próprias janelas; o gesto só seria detectado sobre apps que rodam via XWayland.
-- Pacotes: `sudo apt install wmctrl x11-utils python3-gi gir1.2-atspi-2.0` (Debian/Ubuntu). Para converter imagens: `imagemagick`.
-- Para detectar campos de texto em navegadores e apps Electron, ative a acessibilidade:
-  `gsettings set org.gnome.desktop.interface toolkit-accessibility true`
-- Iniciar com o sistema: copie um `.desktop` que rode o app para `~/.config/autostart/`.
+Pacotes: `sudo apt install wmctrl x11-utils python3-gi gir1.2-atspi-2.0` (Debian/Ubuntu). Para converter imagens: `imagemagick`.
+
+**GNOME em Wayland (padrão do Ubuntu/Debian atuais)**
+
+O Wayland não deixa nenhum programa observar o mouse fora das próprias janelas, então o gesto do botão direito é impossível. Nele, o RadialFlow funciona assim:
+
+1. Com o app aberto (`npm start`), crie o atalho de teclado: `npm run atalho` (padrão **Ctrl+Alt+Espaço**; outro: `npm run atalho -- '<Super>r'`).
+2. Aperte o atalho: a roda abre sob o cursor. Clique na fatia, ou tecle o número dela; **Esc** cancela.
+3. Na primeira ação que envia teclas (colar, encaixar janela...), o GNOME pergunta se o RadialFlow pode **controlar o teclado**. Aprove; a autorização fica salva em `~/.config/radialflow/portal-token`. Enquanto há uma ação recente, o GNOME mostra um ícone de "controle remoto" na barra superior; ele some após 60 s sem uso.
+
+O contexto vem do **foco**: campo de texto com foco → menu de texto; gerenciador de arquivos ativo → menu de arquivos; outro caso → ações da janela ativa (encaixar, maximizar, minimizar, recorte, visão geral). Encaixar usa Super+←/→/↑, os atalhos do GNOME/Tiling Assistant.
+
+**Sessão X11 ("GNOME em Xorg" na tela de login)**: o gesto do botão direito funciona como no Windows e no macOS.
+
+Em ambos: para detectar campos de texto em navegadores e apps Electron, ative a acessibilidade:
+`gsettings set org.gnome.desktop.interface toolkit-accessibility true`
+
+Iniciar com o sistema: copie um `.desktop` que rode o app para `~/.config/autostart/`.
 
 ### macOS
 
@@ -56,6 +69,7 @@ Nada além do `npm install`.
 - A ação de copiar (Traduzir, e arquivos no Linux) usa a área de transferência e restaura o texto anterior em seguida.
 - Windows: ações não funcionam sobre janelas de administrador, a menos que o RadialFlow também rode como administrador.
 - Linux: no Wayland, ver acima. A detecção de arquivos funciona em Nautilus, Nemo, Caja, Thunar, Dolphin e PCManFM; a área de trabalho não é suportada.
+- Botão do gesto (X11, Windows, macOS): `RADIALFLOW_BUTTON=1` esquerdo, `2` direito (padrão), `3` meio.
 - macOS: "campo de texto" usa o elemento com foco, não o que está exatamente sob o cursor.
 - Apps que desenham a própria interface (jogos, alguns apps Java) podem cair em "qualquer outro lugar".
 

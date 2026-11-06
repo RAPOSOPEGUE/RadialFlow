@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """RadialFlow - sonda de contexto para Linux (processo persistente).
 
-Lê do stdin linhas "x y" e responde uma linha JSON por pedido:
+Lê do stdin linhas "x y" (ou "focus", no Wayland) e responde uma linha JSON por pedido:
   {"kind": "file"|"titlebar"|"text"|"unknown", "app": str, "role": str}
 
 Usa AT-SPI (acessibilidade) para saber o que há sob o cursor e
@@ -119,9 +119,45 @@ def probe(x, y):
     return res
 
 
+def focus():
+    """Contexto pelo foco do teclado (Wayland, onde a posição do cursor não é confiável)."""
+    res = {'kind': 'unknown', 'app': '', 'role': ''}
+    if Atspi is None:
+        return res
+    rule = Atspi.MatchRule.new(
+        Atspi.StateSet.new([Atspi.StateType.FOCUSED]), Atspi.CollectionMatchType.ALL,
+        {}, Atspi.CollectionMatchType.ALL, [], Atspi.CollectionMatchType.ALL,
+        [], Atspi.CollectionMatchType.ALL, False)
+    desktop = Atspi.get_desktop(0)
+    for i in range(desktop.get_child_count()):
+        app = desktop.get_child_at_index(i)
+        if app is None:
+            continue
+        for j in range(app.get_child_count()):
+            win = app.get_child_at_index(j)
+            if win is None or not win.get_state_set().contains(Atspi.StateType.ACTIVE):
+                continue
+            res['app'] = (app.get_name() or '').lower()
+            col = win.get_collection_iface()
+            found = col.get_matches(rule, Atspi.CollectionSortOrder.CANONICAL, 1, True) if col else []
+            if found:
+                res['role'] = found[0].get_role_name() or ''
+            if res['role'] in TEXT_ROLES:
+                res['kind'] = 'text'
+            elif res['app'].startswith(FILE_APPS):
+                res['kind'] = 'file'
+            return res
+    return res
+
+
 def main():
     for line in sys.stdin:
         try:
+            if line.strip() == 'focus':
+                out = focus()
+                sys.stdout.write(json.dumps(out) + '\n')
+                sys.stdout.flush()
+                continue
             x, y = (int(float(v)) for v in line.split()[:2])
             out = probe(x, y)
         except Exception as exc:

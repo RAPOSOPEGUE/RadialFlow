@@ -1,7 +1,7 @@
 'use strict';
 const path = require('node:path');
 const {
-  app, BrowserWindow, Tray, Menu, screen, nativeImage, Notification, systemPreferences, ipcMain
+  app, BrowserWindow, Tray, Menu, screen, nativeImage, Notification, systemPreferences
 } = require('electron');
 const { GestureDetector } = require('./gesture');
 const { MENU, sliceAt } = require('./menus');
@@ -9,17 +9,18 @@ const hooks = require('./hooks');
 const { toPdf } = require('./pdf');
 const { impl } = require('./platform');
 
-// Linux: roda o Electron via X11/XWayland — o uiohook só enxerga eventos X11
-// e só no X11 dá para posicionar a roda sob o cursor.
+// Linux: roda o Electron via X11 — o uiohook só enxerga eventos X11 e só no X11
+// dá para posicionar a roda sob o cursor.
 if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform', 'x11');
 
 const SIZE = 360; // lado da janela da roda, em DIP
-const FAKE_CONTEXT = process.env.RADIALFLOW_FAKE_CONTEXT; // força um contexto e só registra ações
+const DEBUG = !!process.env.RADIALFLOW_DEBUG;
+const FAKE_CONTEXT = process.env.RADIALFLOW_FAKE_CONTEXT; // força "file" e só registra a ação escolhida
 
 let overlay = null;
 let tray = null;
 let enabled = true;
-let session = null; // { ctx, slices, center(DIP), highlighted }
+let session = null; // { ctx, center(DIP), highlighted }
 let platform = null;
 
 const gesture = new GestureDetector();
@@ -49,7 +50,7 @@ function hide() {
 }
 
 gesture.on('trigger', async ({ origin }) => {
-  if (process.env.RADIALFLOW_DEBUG) console.log('[gesto] disparou em', origin.x, origin.y);
+  if (DEBUG) console.log('[gesto] disparou em', origin.x, origin.y);
   if (!enabled) return;
   const token = {};
   session = token;
@@ -57,29 +58,25 @@ gesture.on('trigger', async ({ origin }) => {
     try { hooks.keys('Escape'); } catch { /* sem teclado sintético: o menu nativo fica aberto */ }
   }
   const ctx = FAKE_CONTEXT
-    ? { kind: FAKE_CONTEXT, paths: [] }
+    ? { kind: 'file', paths: [] }
     : await platform.detectContext(origin.x, origin.y);
   if (session !== token) return; // usuário soltou o botão antes da detecção terminar
-  if (process.env.RADIALFLOW_DEBUG) console.log('[contexto]', JSON.stringify(ctx));
-  if (!FAKE_CONTEXT && ctx.kind !== 'file') { session = null; return; } // a roda é só para arquivos
+  if (DEBUG) console.log('[contexto]', JSON.stringify(ctx));
+  if (ctx.kind !== 'file') { session = null; return; } // a roda é só para arquivos
 
   const center = toDip({ x: origin.x, y: origin.y });
-  const display = screen.getDisplayNearestPoint(center);
-  ctx.workArea = display.workArea;
-  ctx.scaleFactor = display.scaleFactor;
-  const slices = MENU;
-  session = { ctx, slices, center, highlighted: -1 };
+  session = { ctx, center, highlighted: -1 };
   overlay.setBounds({
     x: Math.round(center.x - SIZE / 2), y: Math.round(center.y - SIZE / 2), width: SIZE, height: SIZE
   });
-  overlay.webContents.send('show', { slices, kind: ctx.kind });
+  overlay.webContents.send('show', { slices: MENU });
   overlay.showInactive();
 });
 
 gesture.on('move', ({ x, y }) => {
-  if (!session || !session.slices) return;
+  if (!session || !session.center) return;
   const p = toDip({ x, y });
-  const idx = sliceAt(p.x - session.center.x, p.y - session.center.y, session.slices.length);
+  const idx = sliceAt(p.x - session.center.x, p.y - session.center.y, MENU.length);
   if (idx !== session.highlighted) {
     session.highlighted = idx;
     overlay.webContents.send('highlight', idx);
@@ -89,8 +86,8 @@ gesture.on('move', ({ x, y }) => {
 gesture.on('release', async () => {
   const s = session;
   hide();
-  if (!s || !s.slices || s.highlighted < 0) return;
-  const slice = s.slices[s.highlighted];
+  if (!s || !s.center || s.highlighted < 0) return;
+  const slice = MENU[s.highlighted];
   if (FAKE_CONTEXT) {
     console.log('[simulado] ação:', slice.id);
     return;
@@ -104,70 +101,11 @@ gesture.on('release', async () => {
   }
 });
 
-// ---- Modo atalho (GNOME Wayland): a roda abre por um atalho de teclado do sistema ----
-
-let picker = null;
-let pickSession = null; // { ctx, slices }
-
-function createPicker() {
-  picker = new BrowserWindow({
-    show: false, frame: false, transparent: true, resizable: false, skipTaskbar: true,
-    alwaysOnTop: true, hasShadow: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true }
-  });
-  picker.setAlwaysOnTop(true, 'screen-saver');
-  picker.loadFile(path.join(__dirname, 'overlay', 'index.html'));
-  picker.on('blur', () => closePicker());
-}
-
-function closePicker() {
-  pickSession = null;
-  if (picker && picker.isVisible()) picker.hide();
-}
-
-async function openPicker() {
-  if (!enabled || !platform || !picker || picker.isVisible()) return;
-  const ctx = FAKE_CONTEXT ? { kind: FAKE_CONTEXT, paths: [] } : await platform.detectFocus();
-  if (process.env.RADIALFLOW_DEBUG) console.log('[contexto]', JSON.stringify(ctx));
-  const cursor = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(cursor);
-  ctx.workArea = display.workArea;
-  ctx.scaleFactor = display.scaleFactor;
-  const slices = MENU;
-  pickSession = { ctx, slices };
-  picker.setBounds(display.bounds);
-  picker.webContents.send('pick', {
-    slices, cursor: { x: cursor.x - display.bounds.x, y: cursor.y - display.bounds.y }
-  });
-  picker.show();
-  picker.focus();
-  if (process.env.RADIALFLOW_DEBUG) console.log('[roda] aberta em', JSON.stringify(picker.getBounds()), 'cursor', cursor);
-}
-
-ipcMain.on('picked', async (_e, idx) => {
-  const s = pickSession;
-  closePicker();
-  if (!s || !s.slices[idx]) return;
-  const slice = s.slices[idx];
-  if (FAKE_CONTEXT) {
-    console.log('[simulado] ação:', slice.id);
-    return;
-  }
-  try {
-    await platform.performAction(slice.id, s.ctx);
-  } catch (err) {
-    console.error('[ação]', slice.id, err.message);
-    notify(`Falhou: ${slice.label} — ${err.message.split('\n')[0]}`);
-  }
-});
-ipcMain.on('pick-cancel', () => closePicker());
-
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png'));
   tray = new Tray(process.platform === 'darwin' ? icon.resize({ width: 18, height: 18 }) : icon);
   tray.setToolTip('RadialFlow');
   const rebuild = () => tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Abrir roda', visible: !!(platform && platform.wayland), click: () => openPicker() },
     { label: enabled ? 'Desativar' : 'Ativar', click: () => { enabled = !enabled; rebuild(); } },
     {
       // No Linux o Electron não suporta abrir no login; o README explica o .desktop de autostart.
@@ -186,19 +124,17 @@ function fail(message) {
   notify(message);
 }
 
-// "--abrir" abre a roda (usado pelo atalho do GNOME no Wayland). Se o app já estiver
-// rodando, a segunda instância só repassa o pedido e fecha.
-const wantsPicker = (argv) => argv.includes('--abrir');
-
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', (_e, argv) => { if (wantsPicker(argv)) openPicker(); });
   app.whenReady().then(start);
 }
 
 function start() {
   if (process.platform === 'darwin') app.dock.hide();
+  if (process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland') {
+    console.warn('[RadialFlow] Sessão Wayland: o gesto não funciona. Entre em "GNOME em Xorg" (veja o README).');
+  }
   platform = impl();
   createOverlay();
   createTray();
@@ -208,14 +144,6 @@ function start() {
     return;
   }
   if (!FAKE_CONTEXT) platform.start();
-
-  if (platform.wayland) {
-    // GNOME Wayland não permite observar o mouse fora do app: sem gesto, só atalho.
-    createPicker();
-    notify('Ativo. Abra a roda com o atalho de teclado configurado (veja o README).');
-    if (wantsPicker(process.argv)) picker.webContents.once('did-finish-load', () => openPicker());
-    return;
-  }
 
   try {
     hooks.start({
@@ -227,7 +155,7 @@ function start() {
     fail(err.message);
     return;
   }
-  notify('Ativo. Segure o botão direito e arraste um pouco.');
+  notify('Ativo. Segure o botão direito sobre um arquivo e arraste um pouco.');
 }
 
 // Encerramento limpo ao receber sinal (Ctrl+C no terminal, systemd, kill).

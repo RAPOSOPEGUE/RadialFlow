@@ -1,7 +1,7 @@
 'use strict';
 // Captura global do mouse e envio de teclas via uiohook-napi (Windows, Linux X11, macOS).
 // Só eventos de mouse são observados; o teclado é usado apenas para ENVIAR atalhos.
-// No GNOME Wayland nada disso funciona: veja src/wayland.js.
+// No GNOME Wayland nada disso funciona (o sistema bloqueia): use uma sessão X11.
 
 let uIOhook = null;
 let UiohookKey = null;

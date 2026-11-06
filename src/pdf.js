@@ -14,6 +14,7 @@ const escape = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '
 
 async function onePdf(file) {
   const ext = path.extname(file).toLowerCase();
+  if (ext === '.pdf') throw new Error(`${path.basename(file)} já é PDF`);
   const win = new BrowserWindow({ show: false, webPreferences: { javascript: false } });
   try {
     if (TEXT.has(ext)) {
@@ -25,7 +26,7 @@ async function onePdf(file) {
     } else if (IMAGE.has(ext)) {
       await win.loadURL(pathToFileURL(file).href);
     } else {
-      throw new Error(`não sei converter ${ext || 'esse arquivo'} para PDF`);
+      throw new Error(`${path.basename(file)}: tipo não suportado (texto ou imagem)`);
     }
     const pdf = await win.webContents.printToPDF({ printBackground: true });
     fs.writeFileSync(withExt(file, '.pdf'), pdf);

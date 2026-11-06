@@ -1,11 +1,10 @@
 'use strict';
-// macOS: AppleScript (System Events/Finder) para contexto e janelas; teclas via uiohook;
+// macOS: AppleScript (System Events/Finder) para ler a seleção do Finder;
 // zip/ditto e sips (nativos) para arquivos. Requer permissão de Acessibilidade.
 
 const path = require('node:path');
 const { clipboard } = require('electron');
-const { keys } = require('../hooks');
-const { scriptsDir, run, copySelection, openTranslate, withExt, zipTarget } = require('./common');
+const { scriptsDir, run, withExt, zipTarget } = require('./common');
 
 function osa(script, args) {
   return run('osascript', [path.join(scriptsDir(), script), ...args.map(String)], { timeout: 5000 });
@@ -48,26 +47,8 @@ async function convert(paths, format, ext) {
   for (const f of paths) await run('sips', ['-s', 'format', format, f, '--out', withExt(f, ext)]);
 }
 
-function place(ctx, half) {
-  const { x, y, width, height } = ctx.workArea; // macOS: pontos == DIP do Electron
-  const w = half === 'full' ? width : Math.round(width / 2);
-  const left = half === 'right' ? x + w : x;
-  return osa('place-window-mac.applescript', [left, y, w, height]);
-}
-
 async function performAction(id, ctx) {
   switch (id) {
-    case 'snapLeft': return place(ctx, 'left');
-    case 'snapRight': return place(ctx, 'right');
-    case 'maximize': return place(ctx, 'full');
-    case 'minimize': return keys('Meta', 'M');
-    case 'paste': return keys('Meta', 'V');
-    case 'pastePlain': return keys('Meta', 'Alt', 'Shift', 'V');
-    case 'selectAll': return keys('Meta', 'A');
-    case 'translate': return openTranslate((await copySelection(() => keys('Meta', 'C'))).text);
-    case 'screenshot': return keys('Meta', 'Shift', '4');
-    case 'showDesktop': return keys('F11');
-    case 'taskView': return keys('Ctrl', 'ArrowUp');
     case 'copyPath': return clipboard.writeText(requirePaths(ctx).join('\n'));
     case 'zip': return zip(requirePaths(ctx));
     case 'unzip': return unzip(requirePaths(ctx));

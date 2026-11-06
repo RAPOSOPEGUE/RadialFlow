@@ -3,9 +3,7 @@
 
 const path = require('node:path');
 const { clipboard } = require('electron');
-const { scriptsDir, LineProbe, run, copySelection, openTranslate } = require('./common');
-
-const FILE_ACTIONS = new Set(['zip', 'unzip', 'toPng', 'toJpg']);
+const { scriptsDir, LineProbe, run } = require('./common');
 
 const probe = new LineProbe('powershell.exe', [
   '-NoProfile', '-NoLogo', '-ExecutionPolicy', 'Bypass',
@@ -20,15 +18,8 @@ function ps(args) {
 async function performAction(id, ctx) {
   const paths = Array.isArray(ctx.paths) ? ctx.paths : [];
   if (id === 'copyPath') return clipboard.writeText(paths.join('\r\n'));
-  if (id === 'translate') {
-    const { text } = await copySelection(() => ps(['copySel']));
-    return openTranslate(text);
-  }
-  if (FILE_ACTIONS.has(id)) {
-    if (!paths.length) throw new Error('Nenhum arquivo selecionado');
-    return ps([id, '0', ...paths]);
-  }
-  return ps([id, String(ctx.hwnd || 0)]);
+  if (!paths.length) throw new Error('Nenhum arquivo selecionado');
+  return ps([id, ...paths]);
 }
 
 module.exports = {

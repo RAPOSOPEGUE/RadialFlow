@@ -6,7 +6,7 @@ const { execFile, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
-const { clipboard, shell } = require('electron');
+const { clipboard } = require('electron');
 
 function scriptsDir() {
   return process.resourcesPath && !process.defaultApp
@@ -116,14 +116,6 @@ function parsePaths(blob) {
   return [...out];
 }
 
-async function openTranslate(text) {
-  const t = text.trim();
-  if (!t) return;
-  // O texto vai para o Google Tradutor no navegador (ação explícita do usuário).
-  await shell.openExternal('https://translate.google.com/?sl=auto&tl=pt&op=translate&text=' +
-    encodeURIComponent(t.slice(0, 4000)));
-}
-
 // Nome livre: "foo.zip", "foo (1).zip", ...
 function freeName(file) {
   if (!fs.existsSync(file)) return file;
@@ -162,5 +154,5 @@ function withExt(file, ext) {
 }
 
 module.exports = {
-  scriptsDir, LineProbe, run, sleep, copySelection, parsePaths, openTranslate, zipWithPython, unzipWithPython, withExt, zipTarget
+  scriptsDir, LineProbe, run, sleep, copySelection, parsePaths, zipWithPython, unzipWithPython, withExt, zipTarget
 };

@@ -16,8 +16,8 @@ const gs = (...args) => execFileSync('gsettings', args, { encoding: 'utf8' }).tr
 
 const appDir = path.join(__dirname, '..');
 const electron = require('electron'); // em Node, retorna o caminho do executável
-// O GNOME interpreta o comando como uma linha de shell: aspas protegem caminhos com espaço.
-const command = `"${electron}" "${appDir}" --abrir`;
+// O GNOME interpreta como shell: escape das aspas.
+const command = `${electron.replace(/"/g, '\\"')} ${appDir.replace(/"/g, '\\"')} --abrir`;
 
 const current = gs('get', SCHEMA, 'custom-keybindings');
 const list = current.startsWith('@as') ? [] : JSON.parse(current.replace(/'/g, '"'));

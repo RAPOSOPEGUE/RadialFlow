@@ -1,18 +1,13 @@
 'use strict';
-// Factory de implementação específica da plataforma.
-// Cada plataforma implementa: startHooks(), stopHooks(), detectContext(x, y), performAction(id, ctx)
+// Escolhe a implementação da plataforma. Cada uma exporta:
+// start(), stop(), detectContext(x, y) → { kind, ... }, performAction(id, ctx), dismissNativeMenu.
 
-const windows = require('./windows');
-const linux = require('./linux');
-const darwin = require('./darwin');
-
-const IMPL = { win32: windows, linux, darwin };
+const MODULES = { win32: './windows', linux: './linux', darwin: './darwin' };
 
 function impl() {
-  const p = process.platform;
-  const i = IMPL[p];
-  if (!i) throw new Error(`RadialFlow não suporta ${p}`);
-  return i;
+  const mod = MODULES[process.platform];
+  if (!mod) throw new Error(`RadialFlow não suporta ${process.platform}`);
+  return require(mod);
 }
 
 module.exports = { impl };

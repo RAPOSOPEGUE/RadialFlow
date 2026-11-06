@@ -2,14 +2,21 @@ name: CI
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm install
       - run: npm test
-      - name: Validar sintaxe dos scripts PowerShell
+      - name: uiohook-napi carrega
+        run: node -e "require('uiohook-napi'); console.log('ok')"
+      - name: Sintaxe dos scripts PowerShell
+        if: runner.os == 'Windows'
         shell: powershell
         run: |
           foreach ($f in Get-ChildItem scripts\*.ps1) {
@@ -17,3 +24,9 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs) | Out-Null
             if ($errs) { $errs; exit 1 }
           }
+      - name: Sintaxe da sonda Python
+        if: runner.os == 'Linux'
+        run: python3 -m py_compile scripts/context-probe-linux.py
+      - name: Sintaxe dos AppleScripts
+        if: runner.os == 'macOS'
+        run: for f in scripts/*.applescript; do osacompile -o /tmp/check.scpt "$f"; done

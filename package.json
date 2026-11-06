@@ -10,21 +10,40 @@
     "dist": "electron-builder"
   },
   "dependencies": {
-    "xdotool": "^2.0.0"
+    "uiohook-napi": "^1.5.4"
   },
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },
-  "optionalDependencies": {
-    "uiohook-napi": "^1.5.4"
-  },
   "build": {
     "appId": "inc.jager.radialflow",
     "productName": "RadialFlow",
-    "win": { "target": "nsis" },
-    "linux": { "target": ["AppImage", "deb"] },
-    "mac": { "target": ["dmg", "zip"] },
-    "extraResources": [{ "from": "scripts", "to": "scripts" }]
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "extraResources": [
+      {
+        "from": "scripts",
+        "to": "scripts"
+      }
+    ]
   }
 }

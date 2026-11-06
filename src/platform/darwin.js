@@ -1,154 +1,87 @@
 'use strict';
-// Implementação macOS: robotjs para hooks (se disponível), AppleScript para contexto e ações.
+// macOS: AppleScript (System Events/Finder) para contexto e janelas; teclas via uiohook;
+// zip/ditto e sips (nativos) para arquivos. Requer permissão de Acessibilidade.
 
-const { exec } = require('node:child_process');
-const { promisify } = require('node:util');
-const { clipboard, shell } = require('electron');
+const path = require('node:path');
+const { clipboard } = require('electron');
+const { keys } = require('../hooks');
+const { scriptsDir, run, copySelection, openTranslate, withExt, zipTarget } = require('./common');
 
-const execAsync = promisify(exec);
-
-let monitor = null;
-
-// Usa osascript (AppleScript) para ações no macOS
-function apple(script) {
-  return execAsync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, { timeout: 10000 });
-}
-
-function startHooks(onRightDown, onMove, onRightUp) {
-  // macOS não tem hooks globais fáceis sem dependências. Vamos usar polling.
-  const { spawn } = require('node:child_process');
-  monitor = spawn('bash', ['-c', `
-    while true; do
-      # Monitora eventos via Events (requer permissão)
-      pythonw - <<'PYTHON' 2>/dev/null &
-import Quartz
-import time
-def callback(proxy, type, event, refcon):
-  loc = Quartz.CGEventGetLocation(event)
-  btn = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGMouseEventButtonNumber)
-  if type == Quartz.kCGEventRightMouseDown:
-    print("down:", int(loc.x), int(loc.y))
-  elif type == Quartz.kCGEventMouseMoved:
-    print("move:", int(loc.x), int(loc.y))
-  elif type == Quartz.kCGEventRightMouseUp:
-    print("up:", int(loc.x), int(loc.y))
-  return event
-mask = Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseDown) | \
-       Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved) | \
-       Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseUp)
-tap = Quartz.CGEventTapCreate(Quartz.kCGHIDEventTap, Quartz.kCGHeadInsertEventTap,
-  Quartz.kCGEventTapOptionDefault, mask, callback, None)
-loop = Quartz.CFRunLoopGetCurrent()
-src = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
-Quartz.CFRunLoopAddSource(loop, src, Quartz.kCFRunLoopCommonModes)
-Quartz.CFRunLoopRun()
-PYTHON
-      sleep 5
-    done
-  `]);
-
-  if (monitor && monitor.stdout) {
-    monitor.stdout.on('data', (buf) => {
-      const line = buf.toString().trim();
-      const [cmd, x, y] = line.split(':');
-      if (cmd === 'down') onRightDown(parseInt(x), parseInt(y));
-      else if (cmd === 'move') onMove(parseInt(x), parseInt(y));
-      else if (cmd === 'up') onRightUp(parseInt(x), parseInt(y));
-    });
-  }
-}
-
-function stopHooks() {
-  if (monitor) monitor.kill();
-  monitor = null;
+function osa(script, args) {
+  return run('osascript', [path.join(scriptsDir(), script), ...args.map(String)], { timeout: 5000 });
 }
 
 async function detectContext(x, y) {
   try {
-    // AppleScript para obter a janela sob o ponto
-    const { stdout } = await apple(`
-      set loc to {${x}, ${y}}
-      tell application "System Events"
-        set w to (first window whose bounds contains loc)
-        set name to name of w
-      end tell
-      return name
-    `);
-    const name = stdout.trim().toLowerCase();
-
-    if (name.includes('finder')) {
-      // Tenta obter arquivos selecionados no Finder
-      const { stdout: files } = await apple(`
-        tell application "Finder"
-          set selected to selection
-          set result to {}
-          repeat with f in selected
-            set end of result to (POSIX path of f)
-          end repeat
-          return result
-        end tell
-      `).catch(() => ({ stdout: '{}' }));
-      try {
-        const paths = JSON.parse(files);
-        return { kind: 'file', paths, hwnd: 0 };
-      } catch {
-        return { kind: 'file', paths: [], hwnd: 0 };
-      }
-    }
-    if (name.includes('text') || name.includes('editor') || name.includes('code')) {
-      return { kind: 'text', hwnd: 0 };
-    }
-    return { kind: 'unknown', hwnd: 0 };
-  } catch {
-    return { kind: 'unknown', hwnd: 0, paths: [] };
+    const out = await osa('context-probe-mac.applescript', [Math.round(x), Math.round(y)]);
+    const [kind, app, paths = ''] = out.replace(/\n$/, '').split('\t');
+    return { kind: kind || 'unknown', app, paths: paths.split(/\r?\n|\r/).filter(Boolean) };
+  } catch (err) {
+    console.error('[sonda mac]', err.message);
+    return { kind: 'unknown', paths: [] };
   }
+}
+
+function requirePaths(ctx) {
+  if (!ctx.paths || !ctx.paths.length) throw new Error('Nenhum arquivo selecionado no Finder');
+  return ctx.paths;
+}
+
+async function zip(paths) {
+  const dst = zipTarget(paths);
+  if (paths.length === 1) {
+    return run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', paths[0], dst]);
+  }
+  // zip com caminhos relativos à pasta comum, para não gravar o caminho absoluto.
+  return run('zip', ['-r', '-q', dst, ...paths.map((p) => path.basename(p))],
+    { cwd: path.dirname(paths[0]) });
+}
+
+async function unzip(paths) {
+  for (const f of paths) {
+    const { dir, name } = path.parse(f);
+    await run('ditto', ['-x', '-k', f, withExt(path.join(dir, name), '')]);
+  }
+}
+
+async function convert(paths, format, ext) {
+  for (const f of paths) await run('sips', ['-s', 'format', format, f, '--out', withExt(f, ext)]);
+}
+
+function place(ctx, half) {
+  const { x, y, width, height } = ctx.workArea; // macOS: pontos == DIP do Electron
+  const w = half === 'full' ? width : Math.round(width / 2);
+  const left = half === 'right' ? x + w : x;
+  return osa('place-window-mac.applescript', [left, y, w, height]);
 }
 
 async function performAction(id, ctx) {
-  const paths = Array.isArray(ctx.paths) ? ctx.paths : [];
-
-  if (id === 'copyPath') {
-    clipboard.writeText(paths.join('\n'));
-    return;
-  }
-
-  if (id === 'translate') {
-    await apple('tell application "System Events" to keystroke "a" using command down').catch(() => {});
-    await apple('tell application "System Events" to keystroke "c" using command down').catch(() => {});
-    await new Promise((r) => setTimeout(r, 150));
-    try {
-      const text = clipboard.readText().trim();
-      if (text) {
-        const url = 'https://translate.google.com/?sl=auto&tl=pt&op=translate&text=' +
-          encodeURIComponent(text.slice(0, 4000));
-        await shell.openExternal(url);
-      }
-    } catch {}
-    return;
-  }
-
   switch (id) {
-    case 'maximize':
-      return apple('tell application "System Events" to key code 126 using command down').catch(() => {});
-    case 'minimize':
-      return apple('tell application "System Events" to key code 101 using command down').catch(() => {});
-    case 'paste':
-      return apple('tell application "System Events" to keystroke "v" using command down');
-    case 'pastePlain':
-      return apple('tell application "System Events" to keystroke "v" using command down shift');
-    case 'selectAll':
-      return apple('tell application "System Events" to keystroke "a" using command down');
-    case 'copySel':
-      return apple('tell application "System Events" to keystroke "c" using command down');
-    case 'screenshot':
-      return apple('do shell script "screencapture -i /tmp/rf_ss.png"').catch(() => {});
-    case 'showDesktop':
-      return apple('key code 103').catch(() => {});  // F11
-    case 'taskView':
-      return apple('key code 33 using control down').catch(() => {});
-    default:
-      console.log('[darwin] ação não suportada:', id);
+    case 'snapLeft': return place(ctx, 'left');
+    case 'snapRight': return place(ctx, 'right');
+    case 'maximize': return place(ctx, 'full');
+    case 'minimize': return keys('Meta', 'M');
+    case 'paste': return keys('Meta', 'V');
+    case 'pastePlain': return keys('Meta', 'Alt', 'Shift', 'V');
+    case 'selectAll': return keys('Meta', 'A');
+    case 'translate': return openTranslate((await copySelection(() => keys('Meta', 'C'))).text);
+    case 'screenshot': return keys('Meta', 'Shift', '4');
+    case 'showDesktop': return keys('F11');
+    case 'taskView': return keys('Ctrl', 'ArrowUp');
+    case 'copyPath': return clipboard.writeText(requirePaths(ctx).join('\n'));
+    case 'zip': return zip(requirePaths(ctx));
+    case 'unzip': return unzip(requirePaths(ctx));
+    case 'toPng': return convert(requirePaths(ctx), 'png', '.png');
+    case 'toJpg': return convert(requirePaths(ctx), 'jpeg', '.jpg');
+    default: throw new Error(`Ação não suportada no macOS: ${id}`);
   }
 }
 
-module.exports = { startHooks, stopHooks, detectContext, performAction };
+module.exports = {
+  start: () => {},
+  stop: () => {},
+  detectContext,
+  performAction,
+  // O menu de contexto do macOS abre ao APERTAR; fechamos com Esc ao disparar a roda.
+  dismissNativeMenu: true
+};
